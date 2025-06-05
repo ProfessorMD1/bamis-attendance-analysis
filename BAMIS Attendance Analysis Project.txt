@@ -1,0 +1,77 @@
+BAMIS Attendance Analysis Project  
+Predicting Student Absenteeism in Northern Nigerian Primary Schools  
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+[![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)](https://www.python.org/downloads/)
+[![GitHub stars](https://img.shields.io/github/stars/professormd1/bamis-attendance-analysis?style=social)](https://github.com/professormd1/bamis-attendance-analysis)
+
+ 📌 Project Overview  
+This project analyzes 1.16 million attendance records from Northern Nigerian primary schools to predict student absenteeism patterns. Using machine learning (Random Forest + SMOTE), we identify key drivers like farming seasons, market days, and gender disparities, achieving 55% prediction accuracy.
+
+👉 Key Features:
+- Machine Learning Pipeline: Predicts absenteeism risk factors
+- Geospatial Analysis: Visualizes trends across 13 Northern states
+- Policy Recommendations: Data-driven interventions for education stakeholders
+
+ 🚀 Quick Start
+ Prerequisites
+- Python 3.10+
+- Google Colab/Jupyter Notebook
+- Google Drive (for dataset storage)
+
+ Installation
+```bash
+git clone https://github.com/professormd1/bamis-attendance-analysis.git
+cd bamis-attendance-analysis
+pip install -r requirements.txt
+```
+
+ Run in Google Colab
+[![Open In Colab](https://colab.research.google.com/drive/1omPC2LT7h9QyqWZrN22DVIwsClQGC0w1#scrollTo=e81NuQ3zNiwf) 
+(https://colab.research.google.com/github/professormd1/bamis-attendance-analysis/blob/main/notebooks/BAMIS_Analysis.ipynb)
+
+1. Upload `BAMIS_Attendance_Data.zip` to your Google Drive
+2. Open the notebook and run:
+```python
+from google.colab import drive
+drive.mount('/content/drive')
+```
+
+ 📂 Project Structure
+```
+.
+├── data/                    Raw and processed datasets
+├── notebooks/               Jupyter notebooks
+├── outputs/                 Visualizations and model results
+├── src/                     Python scripts
+│   ├── data_processing.py   Data cleaning pipeline
+│   └── modeling.py          Machine learning workflow
+├── requirements.txt         Dependencies
+├── README.md                This file
+└── LICENSE                  MIT License
+```
+
+ 🔍 Key Findings
+- 16.6% absenteeism rate with peaks during farming seasons
+- Male students in Primary 5-6 show highest absence rates (27%)
+- Friday market days significantly impact attendance
+- Model achieves 55% accuracy (46% recall for absentees)
+
+ 🤝 How to Contribute
+1. Fork the repository
+2. Create a new branch (`git checkout -b feature/your-feature`)
+3. Commit your changes (`git commit -m 'Add some feature'`)
+4. Push to the branch (`git push origin feature/your-feature`)
+5. Open a Pull Request
+
+ 📜 License
+This project is licensed under the MIT License - see the https://opensource.org/license/mit  file for details.
+
+ 📧 Contact
+- Your Name - Abubakar K. Isah
+- GitHub Profile: [@professormd1](https://github.com/professormd1)
+
+---
+
+✨ Pro Tip: Star this repo if you found it useful! ⭐  
+[![GitHub stars](https://img.shields.io/github/stars/professormd1/bamis-attendance-analysis?style=social)](https://github.com/professormd1/bamis-attendance-analysis)
