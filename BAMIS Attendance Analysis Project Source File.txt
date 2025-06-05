@@ -1,0 +1,284 @@
+# -*- coding: utf-8 -*-
+"""
+Final Working BAMIS Attendance Analysis Pipeline. You can directly run this code on colab
+Author: Abubakar K. Isah.
+Date: 2025-06-03
+
+Fixed version with proper categorical data handling, ML and Visualisation capacity in the lioght of the processing realities of the cloud computing infrastructure.
+"""
+
+# --- 1. LIBRARIES ---
+import pandas as pd
+import numpy as np
+import zipfile
+import matplotlib.pyplot as plt
+import seaborn as sns
+from sklearn.model_selection import train_test_split
+from sklearn.ensemble import RandomForestClassifier
+from sklearn.metrics import (classification_report,
+                           roc_auc_score,
+                           confusion_matrix,
+                           PrecisionRecallDisplay)
+from imblearn.over_sampling import SMOTE
+from google.colab import drive
+from tqdm import tqdm
+import warnings
+
+# Configure warnings
+warnings.filterwarnings('ignore')
+
+# --- 2. DATA LOADING & PROCESSING ---
+def load_data(zip_path='/content/drive/MyDrive/BAMIS_Attendance_Data.zip',
+              sample_size=500000):
+    """Optimized data loading with proper type handling"""
+    try:
+        # Mount Drive
+        drive.mount('/content/drive', force_remount=True)
+
+        print("Extracting and processing data...")
+
+        with zipfile.ZipFile(zip_path, 'r') as zip_ref:
+            # Find CSV file
+            csv_file = next((f for f in zip_ref.namelist() if f.endswith('.csv')), None)
+            if not csv_file:
+                raise FileNotFoundError("No CSV file found in ZIP archive")
+
+            # Read data in chunks
+            chunks = []
+            present_samples = []
+            absent_samples = []
+
+            # First pass to estimate total chunks
+            with zip_ref.open(csv_file) as f:
+                total_rows = sum(1 for _ in f)
+            total_chunks = (total_rows // 100000) + 1
+
+            chunk_iterator = pd.read_csv(
+                zip_ref.open(csv_file),
+                chunksize=100000,
+                usecols=['State', 'LGA', 'Gender', 'Class', 'date', 'Attendance Status'],
+                dtype={
+                    'State': 'object',
+                    'LGA': 'object',
+                    'Gender': 'object',
+                    'Class': 'object',
+                    'Attendance Status': 'object'
+                }
+            )
+
+            for chunk in tqdm(chunk_iterator, total=total_chunks, desc="Processing"):
+                # Handle dates
+                chunk['date'] = pd.to_datetime(chunk['date'], errors='coerce')
+                chunk = chunk.dropna(subset=['date', 'Attendance Status'])
+
+                # Split classes for balanced sampling
+                absent = chunk[chunk['Attendance Status'] == 'Absent']
+                present = chunk[chunk['Attendance Status'] == 'Present']
+
+                absent_samples.append(absent)
+                present_samples.append(present.sample(n=min(len(present), len(absent)*5),
+                                                   random_state=42))
+
+            # Combine with balanced classes
+            df = pd.concat(absent_samples + present_samples, ignore_index=True)
+            df['is_absent'] = (df['Attendance Status'] == 'Absent').astype('int8')
+
+            # Final sampling if needed
+            if len(df) > sample_size:
+                df = df.sample(n=sample_size, random_state=42)
+
+            print(f"\nFinal dataset shape: {df.shape}")
+            print("Class balance:")
+            print(df['is_absent'].value_counts(normalize=True))
+
+            return df
+
+    except Exception as e:
+        raise Exception(f"Data loading failed: {str(e)}")
+
+# --- 3. EXPLORATORY ANALYSIS ---
+def exploratory_analysis(df):
+    """Enhanced EDA with better visualizations"""
+    try:
+        print("\n=== EXPLORATORY ANALYSIS ===")
+
+        # 1. Attendance Distribution
+        plt.figure(figsize=(10,6))
+        status_counts = df['Attendance Status'].value_counts()
+        ax = status_counts.plot(kind='bar', color=['green', 'red'])
+        plt.title("Attendance Status Distribution")
+        plt.ylabel("Count")
+
+        # Add percentages to bars
+        total = len(df)
+        for p in ax.patches:
+            ax.annotate(f'{p.get_height()/total:.1%}',
+                       (p.get_x() + p.get_width() / 2., p.get_height()),
+                       ha='center', va='center', xytext=(0, 10),
+                       textcoords='offset points')
+
+        plt.show()
+
+        # 2. Temporal Patterns
+        df['month'] = df['date'].dt.month_name()
+        df['day_of_week'] = df['date'].dt.day_name()
+
+        fig, axes = plt.subplots(1, 2, figsize=(18,6))
+
+        # Monthly patterns
+        monthly = df.groupby(['month', 'Attendance Status']).size().unstack()
+        monthly = monthly.reindex(['January', 'February', 'March', 'April', 'May',
+                                 'June', 'July', 'August', 'September',
+                                 'October', 'November', 'December'])
+        monthly.plot(kind='bar', stacked=True, ax=axes[0])
+        axes[0].set_title("Monthly Attendance Patterns")
+        axes[0].set_ylabel("Count")
+
+        # Day of week patterns
+        daily = df.groupby(['day_of_week', 'Attendance Status']).size().unstack()
+        daily = daily.reindex(['Monday', 'Tuesday', 'Wednesday',
+                             'Thursday', 'Friday', 'Saturday', 'Sunday'])
+        daily.plot(kind='bar', stacked=True, ax=axes[1])
+        axes[1].set_title("Day-of-Week Attendance Patterns")
+
+        plt.tight_layout()
+        plt.show()
+
+    except Exception as e:
+        print(f"EDA Error: {str(e)}")
+
+# --- 4. FIXED FEATURE ENGINEERING ---
+def create_features(df):
+    """Fixed feature engineering with proper type handling"""
+    try:
+        print("\nCreating features...")
+
+        # Create a copy to avoid warnings
+        df = df.copy()
+
+        # Convert object types to category AFTER loading
+        categorical_cols = ['State', 'LGA', 'Gender', 'Class']
+        for col in categorical_cols:
+            df[col] = df[col].astype('category')
+
+        # Temporal features
+        df['day_of_week_num'] = df['date'].dt.dayofweek.astype('int8')
+        df['month_num'] = df['date'].dt.month.astype('int8')
+        df['is_weekend'] = (df['day_of_week_num'] >= 5).astype('int8')
+
+        # Academic period features
+        conditions = [
+            df['month_num'].isin([9, 10, 11]),  # First term
+            df['month_num'].isin([12, 1, 2]),   # Second term
+            df['month_num'].isin([3, 4, 5]),    # Third term
+            df['month_num'].isin([6, 7, 8])     # Long vacation
+        ]
+        choices = ['term1', 'term2', 'term3', 'vacation']
+        df['academic_period'] = np.select(conditions, choices, default='other')
+        df['academic_period'] = df['academic_period'].astype('category')
+
+        # Interaction features
+        df['gender_class'] = (df['Gender'].astype(str) + '_' +
+                             df['Class'].astype(str))
+        df['gender_class'] = df['gender_class'].astype('category')
+
+        return df
+
+    except Exception as e:
+        raise Exception(f"Feature engineering failed: {str(e)}")
+
+# --- 5. MODEL TRAINING ---
+def train_model(X_train, X_test, y_train, y_test):
+    """Enhanced model training with proper feature handling"""
+    try:
+        print("\nTraining model with SMOTE...")
+
+        # Apply SMOTE for class imbalance
+        smote = SMOTE(random_state=42)
+        X_res, y_res = smote.fit_resample(X_train, y_train)
+
+        # Optimized Random Forest
+        model = RandomForestClassifier(
+            n_estimators=150,
+            max_depth=12,
+            class_weight='balanced_subsample',
+            random_state=42,
+            n_jobs=-1
+        )
+
+        model.fit(X_res, y_res)
+
+        # Evaluation
+        y_pred = model.predict(X_test)
+        y_proba = model.predict_proba(X_test)[:,1]
+
+        print("\n=== MODEL EVALUATION ===")
+        print(classification_report(y_test, y_pred))
+        print(f"ROC AUC: {roc_auc_score(y_test, y_proba):.4f}")
+
+        # Enhanced visualizations
+        fig, axes = plt.subplots(1, 3, figsize=(20,6))
+
+        # Confusion Matrix
+        cm = confusion_matrix(y_test, y_pred)
+        sns.heatmap(cm, annot=True, fmt='d', cmap='Blues', ax=axes[0])
+        axes[0].set_title("Confusion Matrix")
+        axes[0].set_xlabel("Predicted")
+        axes[0].set_ylabel("Actual")
+
+        # Feature Importance
+        feat_imp = pd.Series(model.feature_importances_, index=X_train.columns)
+        feat_imp.nlargest(10).plot(kind='barh', ax=axes[1])
+        axes[1].set_title("Top 10 Features")
+
+        # Precision-Recall Curve
+        PrecisionRecallDisplay.from_estimator(model, X_test, y_test, ax=axes[2])
+        axes[2].set_title("Precision-Recall Curve")
+
+        plt.tight_layout()
+        plt.show()
+
+        return model
+
+    except Exception as e:
+        raise Exception(f"Model training failed: {str(e)}")
+
+# --- 6. MAIN EXECUTION ---
+if __name__ == "__main__":
+    try:
+        print("=== BAMIS ATTENDANCE ANALYSIS ===")
+
+        # 1. Load and preprocess data
+        df = load_data(sample_size=500000)  # Adjust based on available RAM
+
+        # 2. Exploratory analysis
+        exploratory_analysis(df)
+
+        # 3. Feature engineering
+        df = create_features(df)
+
+        # 4. Prepare modeling data
+        features = ['Gender', 'Class', 'month_num', 'day_of_week_num',
+                   'is_weekend', 'academic_period', 'gender_class']
+        X = pd.get_dummies(df[features], drop_first=True)
+        y = df['is_absent']
+
+        # 5. Train-test split
+        X_train, X_test, y_train, y_test = train_test_split(
+            X, y,
+            test_size=0.3,
+            stratify=y,
+            random_state=42
+        )
+
+        # 6. Model training
+        model = train_model(X_train, X_test, y_train, y_test)
+
+        print("\n=== ANALYSIS COMPLETE ===")
+
+    except Exception as e:
+        print(f"\nERROR: {str(e)}")
+        print("\nTroubleshooting:")
+        print("1. Verify file path in Google Drive")
+        print("2. Check available RAM in Colab runtime")
+        print("3. Try reducing sample_size parameter if needed")
